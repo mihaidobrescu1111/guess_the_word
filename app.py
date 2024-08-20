@@ -210,6 +210,14 @@ class TaskManager:
             client
         )
 
+    async def broadcast_leaderboard(self, client=None):
+        db_player = db.q(f"select * from {players} order by points desc limit 20")
+        cells = [Tr(Td(f"{idx}.", style="padding: 5px; width: 50px; text-align: center;"), Td(row['name'], style="padding: 5px;"), Td(row['points'], style="padding: 5px; text-align: center;")) for idx, row in enumerate(db_player, start=1)]
+            
+        leaderboard = Div(
+            Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('Username')), Th(B("Points"), style="text-align: center;")), *cells))
+        )
+        await self.send_to_clients(Div(leaderboard, id='leaderboard'), client)
 
 
 def ensure_db_tables():
@@ -337,18 +345,7 @@ async def get(session, app, request):
         else:
             current_points = db_player[0]['points']
 
-    db_player = db.q(f"select * from {players} order by points desc limit 20")
-    cells = [Tr(Td(f"{idx}.", style="padding: 5px; width: 50px; text-align: center;"), Td(row['name'], style="padding: 5px;"), Td(row['points'], style="padding: 5px; text-align: center;")) for idx, row in enumerate(db_player, start=1)]
-        
-    leaderboard = Div(
-        Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('Username')), Th(B("Points"), style="text-align: center;")), *cells))
-    )
 
-    current_word_info = Div(id="current_word_info")
-    left_panel = Div(
-        leaderboard,
-        cls='side-panel'
-    )
     
     if user_id:
         top_right_corner = Div(user_id + ": " + str(current_points) + " pts", cls='login', id='login_points')
@@ -365,10 +362,14 @@ async def get(session, app, request):
                   style="width: 100%; height: auto; display: block;"), href=google_login_link), id="google")
         top_right_corner = Div(lbtn, google_btn)
     
+    left_panel = Div(
+        Div(id='leaderboard'),
+        cls='side-panel'
+    )
     middle_panel = Div(
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
-        current_word_info,
+        Div(id="current_word_info"),
         Div(guess_form()),
         cls="middle-panel"
     )
@@ -426,7 +427,6 @@ async def get(session, app, request):
 
 @rt('/faq')
 async def get(session, app, request):
-
     main_content = Ul(*[Li(Strong(pair[0]), Br(), P(pair[1])) for pair in qa], style="padding: 10px; font-size: 20px;")
     return Title("Guess the word"), Div(
         tabs,
@@ -445,10 +445,6 @@ async def post(session, guess: str):
 
     guess = guess.strip()
 
-    if guess.lower() == task_manager.current_word.word.lower():
-        # add points to the user
-        return guess_form()
-
     if len(guess) > env_vars.WORD_MAX_LENGTH:
         add_toast(session, f"The guess max length is {env_vars.WORD_MAX_LENGTH} characters", "error")
         return guess_form()
@@ -456,7 +452,7 @@ async def post(session, guess: str):
     if len(guess) == 0:
         add_toast(session, "Cannot send empty guess", "error")
         return guess_form()
-
+    
     user_id = session['session_id']
             
     db_player = db.q(f"select * from {players} where {players.c.id} = '{task_manager.all_users[user_id]}'")
@@ -467,6 +463,16 @@ async def post(session, guess: str):
     }
 
     async with task_manager.guesses_lock:
+        if guess.lower() == task_manager.current_word.word.lower():
+            guess_dict['guess'] = 'answered correctly'
+            db_winner = db_player[0]
+            winner_name = db_winner['name']
+            db_winner['points'] += 5
+            players.update(db_winner)
+            elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
+            for client in task_manager.online_users[winner_name]['ws_clients']:
+                await task_manager.send_to_clients(elem, client)
+            await task_manager.broadcast_leaderboard()
         task_manager.guesses.append(guess_dict)
         await task_manager.broadcast_guesses()
         logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
@@ -487,6 +493,7 @@ async def on_connect(send, ws):
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
     await task_manager.broadcast_guesses(send)
+    await task_manager.broadcast_leaderboard(send)
 
 
 async def on_disconnect(send, session):
