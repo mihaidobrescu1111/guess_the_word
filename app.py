@@ -42,8 +42,8 @@ css = [
     Style('.item { display: inline-block; }'),
     Style('.left { float: left; }'),
     Style('.right { float: right }'),
-    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 20%;}'),
-    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 60%;}'),
+    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 30%;}'),
+    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 40%;}'),
     Style('.login { margin-bottom: 10px; max-width: fit-content; margin-left: auto; margin-right: auto;}'),
     Style('.primary:active { background-color: #0056b3; }'),
     Style('.last-tab  { display: flex; align-items: center;  justify-content: center;}'),
@@ -186,7 +186,6 @@ class TaskManager:
                 async with self.topics_lock:
                     topic.status = "failed"
 
-        await self.broadcast_next_topics()
         async with self.topics_lock:
             if topic.status == "successful" and self.current_topic is None:
                 should_consume = True
@@ -214,7 +213,6 @@ class TaskManager:
                 self.current_topic_start_time = asyncio.get_event_loop().time()
                 self.current_timeout_task = asyncio.create_task(self.topic_timeout())
         query = db.q(f"SELECT * FROM {words} ORDER BY RANDOM() LIMIT 1")[0]
-        # self.current_topic.question.trivia_question = query['word']
         self.current_word = Word(
             word=query['word'],
             hint1=query['hint1'],
@@ -225,11 +223,8 @@ class TaskManager:
         )
         if topic:
             logging.debug(f"We have a topic to broadcast: {topic.topic}")
-            await self.broadcast_current_question()
             await self.broadcast_current_word()
-            await self.broadcast_next_topics()
             await self.compute_winners()
-            # await self.broadcast_past_topic()
             logging.debug(f"Topic consumed: {topic.topic}")
             logging.debug(f"Length of self.topics: {len(self.topics)}")
         return topic
@@ -267,7 +262,6 @@ class TaskManager:
         await asyncio.sleep(env_vars.KEEP_FAILED_TOPIC_SEC)
         if topic in self.topics and topic.status == "failed":
             self.topics.remove(topic)
-            await self.broadcast_next_topics()
         logging.debug(f"Failed topic removed: {topic.topic}")
 
     async def monitor_topics(self):
@@ -294,33 +288,10 @@ class TaskManager:
                                   question=Question(trivia_rec["question"], trivia_rec["option_A"],  trivia_rec["option_B"], trivia_rec["option_C"], trivia_rec["option_D"], "option_{}".format(trivia_rec["correct_option"])),
                                   is_from_db=True))
                     self.topics = deque(sorted(self.topics, reverse=True))
-                    await self.broadcast_next_topics()
                     logging.debug("Default topics added")
                 except Exception as e:
                     error_message = str(e)
                     logging.debug("Issues when generating default topics: " + error_message)
-
-    async def add_user_topic(self, points, topic, user_id):
-        async with self.topics_lock:
-            self.topics.append(Topic(points=points, topic=topic, user=user_id))
-            self.topics = deque(sorted(self.topics, reverse=True))
-            await self.broadcast_next_topics()
-            logging.debug(f"User topic: {topic} added")
-
-    async def broadcast_next_topics(self, client=None):
-        next_topics = list(self.topics)[:env_vars.NR_TOPICS_TO_BROADCAST]
-        status_dict = {
-            'failed': '#dc552c',
-            'pending': '#ede7dd',
-            'computing': '#cfb767',
-            'successful': '#77ab59'
-        }
-        next_topics_html = [Div(Div(f"{item.topic if item.status not in ['pending', 'failed'] else 'Topic Censored'}"),
-                                Div(item.user, cls="item left"), Div(f"{item.points} pts", cls="item right"),
-                                cls="card", style=f"background-color: {status_dict[item.status]}") for item in
-                            next_topics]
-        
-        await self.send_to_clients(Div(*next_topics_html, id="next_topics"), client)
 
     async def send_to_clients(self, element, client=None):
         with self.online_users_lock:
@@ -372,30 +343,6 @@ class TaskManager:
             for key, user_data in self.online_users.items():
                 if key not in self.past_topic.winners:
                     user_data['combo_count'] = 0
-                
-                            
-    async def broadcast_past_topic(self, client=None):
-        if self.past_topic:                
-            ans = getattr(self.past_topic.question, self.past_topic.question.correct_answer)
-            past_topic_html = Div(Div(B("Previous question:"), P(self.past_topic.question.trivia_question)),
-                                   Div(B("Correct answer:"), P(ans)),
-                                   Div(
-                                        B("Winners:"),
-                                        Table(*[Tr(Td(winner), Td(f"{(len(self.past_topic.winners) - self.past_topic.winners.index(winner)) * 10} pts")) for winner in self.past_topic.winners]),
-                                  ),
-                                  cls="past-card")
-
-            await self.send_to_clients(Div(past_topic_html, id="past_topic"), client)
-
-    async def broadcast_current_question(self, client=None):
-        current_question_info = Div(
-            Div(
-                Div(self.current_topic.question.trivia_question, cls="trivia-question"),
-                Div(self.current_topic.user, cls="item left"),
-                Div(f"{self.current_topic.points} pts", cls="item right"),
-                cls="card"),
-        )
-        await self.send_to_clients(Div(current_question_info, id="current_question_info"), client)
 
     async def broadcast_current_word(self, client=None):
         current_word_info = Div(
@@ -746,12 +693,8 @@ async def on_connect(send, ws):
         if client_key not in task_manager.online_users:
             task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0}
         task_manager.online_users[client_key]['ws_clients'].add(send)
-    await task_manager.broadcast_next_topics(send)
-    if task_manager.current_topic:
-        await task_manager.broadcast_current_question(send)
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
-    # await task_manager.broadcast_past_topic(send)
     await task_manager.broadcast_guesses(send)
 
 
