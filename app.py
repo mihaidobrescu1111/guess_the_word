@@ -24,7 +24,6 @@ SIGN_IN_TEXT = """Only logged users can play. Press on either "Sign in with Hugg
 db_path = f'{env_vars.DB_DIRECTORY}trivia.db'
 db = database(db_path)
 players = db.t.players
-trivias = db.t.trivias
 words = db.t.words
     
 def similar(a, b):
@@ -47,8 +46,8 @@ css = [
     Style('.login { margin-bottom: 10px; max-width: fit-content; margin-left: auto; margin-right: auto;}'),
     Style('.primary:active { background-color: #0056b3; }'),
     Style('.last-tab  { display: flex; align-items: center;  justify-content: center;}'),
-    Style('@media (max-width: 768px) { .side-panel { display: none; } .middle-panel { display: block; flex: 1; } .trivia-question { font-size: 20px; } #login-badge { width: 70%; } .login { display: flex; justify-content: center; align-items: center; height: 100%; } .login a {display: flex; justify-content: center; align-items: center; } #google { display: flex; justify-content: center; align-items: center; }}'),
-    Style('@media (min-width: 769px) { .login_wrapper { display: none; } .bid_wrapper {display: none; } .trivia-question { font-size: 30px; }}'),
+    Style('@media (max-width: 768px) { .side-panel { display: none; } .middle-panel { display: block; flex: 1; }  #login-badge { width: 70%; } .login { display: flex; justify-content: center; align-items: center; height: 100%; } .login a {display: flex; justify-content: center; align-items: center; } #google { display: flex; justify-content: center; align-items: center; }}'),
+    Style('@media (min-width: 769px) { .login_wrapper { display: none; } }'),
     Style('@media (max-width: 446px) { #how-to-play { font-size: 12px; height: 49.6px; white-space: normal; word-wrap: break-word; display: inline-flex; justify-content: center; align-items: center} #stats { height: 49.6px; } }'),
     Style('@media (min-width: 431px) { #play { width: 152.27px; } }'),
 ]
@@ -242,7 +241,7 @@ def ensure_db_tables():
                 record['hint #5']))
         conn.commit()
         conn.close()
-        logging.debug("Count trivia rows:" + str(len(list(words.rows))))
+        logging.debug("Count word rows:" + str(len(list(words.rows))))
     
 async def app_startup():
     ensure_db_tables()
@@ -401,11 +400,11 @@ async def get(session, app, request):
         hx_ext='ws', ws_connect='/ws'
     )
     
-    return Title("Trivia"), Div(container, enterToGuess())
+    return Title("Guess the word"), Div(container, enterToGuess())
 
 @rt("/how-to-play")
 def get(app, session):
-    return Title("Trivia"), Div(tabs, rules, style="font-size: 20px;", cls="container")
+    return Title("Guess the word"), Div(tabs, rules, style="font-size: 20px;", cls="container")
 
 @rt('/stats')
 async def get(session, app, request):
@@ -419,7 +418,7 @@ async def get(session, app, request):
         Div(H2("Logged in users (" + str(len(c)) + "):"), Div(", ".join(c))),
         Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('HuggingFace Username')), Th(B("Points"), style="text-align: center;")), *cells))
     )
-    return Title("Trivia"), Div(
+    return Title("Guess the word"), Div(
         tabs,
         main_content,
         cls="container"
@@ -429,7 +428,7 @@ async def get(session, app, request):
 async def get(session, app, request):
 
     main_content = Ul(*[Li(Strong(pair[0]), Br(), P(pair[1])) for pair in qa], style="padding: 10px; font-size: 20px;")
-    return Title("Trivia"), Div(
+    return Title("Guess the word"), Div(
         tabs,
         main_content,
         cls="container"
