@@ -555,9 +555,17 @@ async def get(session, app, request):
         else:
             current_points = db_player[0]['points']
 
+    db_player = db.q(f"select * from {players} order by points desc limit 20")
+    cells = [Tr(Td(f"{idx}.", style="padding: 5px; width: 50px; text-align: center;"), Td(row['name'], style="padding: 5px;"), Td(row['points'], style="padding: 5px; text-align: center;")) for idx, row in enumerate(db_player, start=1)]
+        
+    leaderboard = Div(
+        Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('Username')), Th(B("Points"), style="text-align: center;")), *cells))
+    )
+
     current_word_info = Div(id="current_word_info")
     left_panel = Div(
-        Div(id="next_topics"),
+        # Div(id="next_topics"),
+        leaderboard,
         cls='side-panel'
     )
     
