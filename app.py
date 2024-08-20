@@ -420,7 +420,7 @@ class TaskManager:
 
     async def broadcast_guesses(self, client=None):
         guesses = list(self.guesses)
-        guesses_html = [Div(Div(guess) for guess in guesses)]
+        guesses_html = [Div(Div(f"{elem['user_id']}: {elem['guess']}") for elem in guesses)]
 
         await self.send_to_clients(Div(*guesses_html, id='guesses'), client)
 
@@ -686,9 +686,9 @@ async def get(session, app, request):
 
 @rt("/guess")
 async def post(session, guess: str):
-    # if 'session_id' not in session:
-    #     add_toast(session, SIGN_IN_TEXT, "error")
-    #     return guess_form()
+    if 'session_id' not in session:
+        add_toast(session, SIGN_IN_TEXT, "error")
+        return guess_form()
     
     task_manager = app.state.task_manager
 
@@ -706,10 +706,20 @@ async def post(session, guess: str):
         add_toast(session, "Cannot send empty guess", "error")
         return guess_form()
 
-    
+    user_id = session['session_id']
+        
+    # if user_id not in task_manager.all_users:
+    #     task_manager.all_users[user_id] = None
+            
+    db_player = db.q(f"select * from {players} where {players.c.id} = '{task_manager.all_users[user_id]}'")
+
+    guess_dict = {
+        'guess': guess,
+        'user_id': db_player[0]['name']
+    }
 
     async with task_manager.guesses_lock:
-        task_manager.guesses.append(guess)
+        task_manager.guesses.append(guess_dict)
         await task_manager.broadcast_guesses()
         logging.debug(f"Guess: {guess}")
 
