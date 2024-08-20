@@ -213,12 +213,11 @@ class TaskManager:
 
     async def broadcast_guesses(self, client=None):
         guesses = list(self.guesses)
-        guesses_html = [Div(f"{elem['user_id']}: {elem['guess']}", style="border-bottom: 1px solid #ccc; padding: 5px;") for elem in guesses]
-
-        await self.send_to_clients(
-            Div(*guesses_html, id='guesses', style='height: 300px; overflow-y: auto; border: 1px solid #ccc;'),
-            client
-        )
+        guesses_html = [Div(
+            f"{elem['user_id']}: {elem['guess']}",
+            style=f"border-bottom: 1px solid #ccc; padding: 5px; background-color: {'#77ab59;' if elem['guess'] == 'answered correctly' else ''}"
+        ) for elem in guesses[::-1]]
+        await self.send_to_clients(Div(*guesses_html, id='guesses', style='height: 800px; overflow-y: auto; border: 1px solid #ccc; display: flex; flex-direction: column-reverse;'),client)
 
     async def broadcast_leaderboard(self, client=None):
         db_player = db.q(f"select * from {players} order by points desc limit 20")
