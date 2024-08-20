@@ -48,7 +48,7 @@ css = [
     Style('.primary:active { background-color: #0056b3; }'),
     Style('.last-tab  { display: flex; align-items: center;  justify-content: center;}'),
     Style('@media (max-width: 768px) { .side-panel { display: none; } .middle-panel { display: block; flex: 1; } .trivia-question { font-size: 20px; } #login-badge { width: 70%; } .login { display: flex; justify-content: center; align-items: center; height: 100%; } .login a {display: flex; justify-content: center; align-items: center; } #google { display: flex; justify-content: center; align-items: center; }}'),
-    Style('@media (min-width: 769px) { .login_wrapper { display: none; } .bid_wrapper {display: none; } .past_topic_wrapper {display: none;} .trivia-question { font-size: 30px; }}'),
+    Style('@media (min-width: 769px) { .login_wrapper { display: none; } .bid_wrapper {display: none; } .trivia-question { font-size: 30px; }}'),
     Style('@media (max-width: 446px) { #how-to-play { font-size: 12px; height: 49.6px; white-space: normal; word-wrap: break-word; display: inline-flex; justify-content: center; align-items: center} #stats { height: 49.6px; } }'),
     Style('@media (min-width: 431px) { #play { width: 152.27px; } }'),
 ]
@@ -109,16 +109,14 @@ class TaskManager:
         self.topics = deque()
         self.topics_lock = asyncio.Lock()
         self.answers_lock = asyncio.Lock()
-        self.past_topic = None
         self.executors = [concurrent.futures.ThreadPoolExecutor(max_workers=1) for _ in range(num_executors)]
         self.executor_tasks = [set() for _ in range(num_executors)]
-        self.current_topic_start_time = None
+        self.current_word_start_time = None
         self.current_timeout_task = None
         self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0 }}  # Track connected WebSocket clients
         self.online_users_lock = threading.Lock()
         self.task = None
         self.countdown_var = env_vars.QUESTION_COUNTDOWN_SEC
-        self.current_topic = None
         self.all_users = {}
         self.guesses = []
         self.guesses_lock = asyncio.Lock()
@@ -139,58 +137,16 @@ class TaskManager:
                             break
 
             if topic_to_process:
-                await self.update_status(topic_to_process)
+                await self.update_status()
                 async with self.topics_lock:
                     self.executor_tasks[executor_id].remove(topic_to_process)
             await asyncio.sleep(0.1)
 
-    async def update_status(self, topic: Topic):
+    async def update_status(self):
         await asyncio.sleep(1)
-        should_consume = False 
-        if topic.is_from_db:
-            async with self.topics_lock:
-                topic.status ="successful"
-        else:
-            async with self.topics_lock:
-                clone_topic = copy.copy(topic)
-            try:
-                if clone_topic.status == "pending":
-                    # llm_resp = await llm_req.topic_check(clone_topic.topic)
-                    llm_resp = 'Yes'
-                    if llm_resp == "No":
-                        status = "computing"
-                    else:
-                        status = "failed"
-                    async with self.topics_lock:
-                        topic.status = status
-                elif clone_topic.status == "computing":
-                    # content = await llm_req.generate_question(clone_topic.topic)
-                    content = {'trivia question': 'question',
-                               'option A': 'option A',
-                               'option B': 'option B',
-                               'option C': 'option C',
-                               'option D': 'option D',
-                               'correct answer': 'option A'
-                               }
-                    async with self.topics_lock:
-                        topic.question = Question(content["trivia question"],
-                                    content["option A"],
-                                    content["option B"],
-                                    content["option C"],
-                                    content["option D"],
-                                    content["correct answer"].replace(" ", "_"))
-                        topic.status = "successful"
-            except Exception as e:
-                error_message = str(e)
-                logging.debug("llm error: " + error_message)
-                async with self.topics_lock:
-                    topic.status = "failed"
-
-        async with self.topics_lock:
-            if topic.status == "successful" and self.current_topic is None:
-                should_consume = True
-            if topic.status == "failed":
-                await asyncio.create_task(self.remove_failed_topic(topic))
+        should_consume = False
+        if self.current_word is None:
+            should_consume = True
         if should_consume:
             if self.task:
                 self.task.cancel()
@@ -199,21 +155,13 @@ class TaskManager:
             async with self.guesses_lock:
                 self.guesses = []
             await self.broadcast_guesses()
-            await self.consume_successful_topic()
+            await self.consume_successful_word()
+        
 
-    async def consume_successful_topic(self):
-        topic = None
-        async with self.topics_lock:
-            successful_topics = [t for t in self.topics if t.status == "successful"]
-            if successful_topics:
-                topic = successful_topics[0]
-                logging.debug(f"Topic obtained: {topic.topic}")
-                self.topics.remove(topic)
-                self.current_topic = topic
-                self.current_topic_start_time = asyncio.get_event_loop().time()
-                self.current_timeout_task = asyncio.create_task(self.topic_timeout())
+    async def consume_successful_word(self):
+        word = None
         query = db.q(f"SELECT * FROM {words} ORDER BY RANDOM() LIMIT 1")[0]
-        self.current_word = Word(
+        word = Word(
             word=query['word'],
             hint1=query['hint1'],
             hint2=query['hint2'],
@@ -221,48 +169,41 @@ class TaskManager:
             hint4=query['hint4'],
             hint5=query['hint5'],
         )
-        if topic:
-            logging.debug(f"We have a topic to broadcast: {topic.topic}")
+        self.current_word = word
+        self.current_word_start_time = asyncio.get_event_loop().time()
+        self.current_timeout_task = asyncio.create_task(self.word_timeout())
+        if word:
+            logging.debug(f"We have a word to broadcast: {word.word}")
             await self.broadcast_current_word()
-            await self.compute_winners()
-            logging.debug(f"Topic consumed: {topic.topic}")
-            logging.debug(f"Length of self.topics: {len(self.topics)}")
-        return topic
+            logging.debug(f"Word consumed: {word.word}")
+        return word
 
-    async def topic_timeout(self):
+    async def word_timeout(self):
         try:
             await asyncio.sleep(env_vars.QUESTION_COUNTDOWN_SEC)
             logging.debug(f"{env_vars.QUESTION_COUNTDOWN_SEC} seconds timeout completed")
-            await self.check_topic_completion()
+            await self.check_word_completion()
         except asyncio.CancelledError:
             logging.debug("Timeout task cancelled")
             pass
 
-    async def check_topic_completion(self):
+    async def check_word_completion(self):
         should_consume = False
-        async with self.topics_lock:
-            current_time = asyncio.get_event_loop().time()
-            logging.debug(current_time)
-            logging.debug(self.current_topic_start_time)
-            if self.current_topic and (current_time - self.current_topic_start_time >= env_vars.QUESTION_COUNTDOWN_SEC - 1):
-                logging.debug(f"Completing topic: {self.current_topic.topic}")
-                should_consume = True
+        current_time = asyncio.get_event_loop().time()
+        logging.debug(current_time)
+        logging.debug(self.current_word_start_time)
+        if self.current_word and (current_time - self.current_word_start_time >= env_vars.QUESTION_COUNTDOWN_SEC - 1):
+            logging.debug(f"Completing word: {self.current_word.word}")
+            should_consume = True
         if should_consume:
             if self.task:
                 self.task.cancel()
                 self.reset()
             self.task = asyncio.create_task(self.count())
-            self.past_topic = self.current_topic
             async with self.guesses_lock:
                 self.guesses = []
             await self.broadcast_guesses()
-            await self.consume_successful_topic()
-
-    async def remove_failed_topic(self, topic: Topic):
-        await asyncio.sleep(env_vars.KEEP_FAILED_TOPIC_SEC)
-        if topic in self.topics and topic.status == "failed":
-            self.topics.remove(topic)
-        logging.debug(f"Failed topic removed: {topic.topic}")
+            await self.consume_successful_word()
 
     async def monitor_topics(self):
         while True:
@@ -311,38 +252,6 @@ class TaskManager:
                             break
                     if key_to_remove:
                         self.online_users.pop(key_to_remove)
-                        
-    async def compute_winners(self):
-        if self.past_topic:
-            async with self.answers_lock:
-                self.past_topic.winners = [a[0] for a in self.past_topic.answers if a[1] == self.past_topic.question.correct_answer]
-            
-            ids = ", ".join([str(self.all_users[w]) for w in self.past_topic.winners])
-            db_players = db.q(f"select * from {players} where {players.c.id} in ({ids})")
-            
-            for db_winner in db_players:
-                winner_name = db_winner['name']
-                db_winner['points'] += (len(self.past_topic.winners) - self.past_topic.winners.index(winner_name)) * 10
-                    
-                self.online_users[winner_name]['combo_count'] += 1
-                if self.online_users[winner_name]['combo_count'] == env_vars.COMBO_CONSECUTIVE_NR_FOR_WIN:
-                    self.online_users[winner_name]['combo_count'] = 0
-                    db_winner['points'] += env_vars.COMBO_WIN_POINTS
-                    
-                    msg = f"Congratulations! You have earned {env_vars.COMBO_WIN_POINTS} extra points for answering {env_vars.COMBO_CONSECUTIVE_NR_FOR_WIN} questions correctly in a row."
-                    elem = Div(Div(Div(msg, cls=f"toast toast-info"), cls="toast-container"), hx_swap_oob="afterbegin:body")
-                    for client in self.online_users[winner_name]['ws_clients']:
-                        await self.send_to_clients(elem, client) 
-                        
-                players.update(db_winner)
-                elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
-                for client in self.online_users[winner_name]['ws_clients']:
-                    await self.send_to_clients(elem, client)   
-            
-            #if you won last question, but not this one, then sorry, it has to be consecutive, so resetting to 0
-            for key, user_data in self.online_users.items():
-                if key not in self.past_topic.winners:
-                    user_data['combo_count'] = 0
 
     async def broadcast_current_word(self, client=None):
         current_word_info = Div(
@@ -511,7 +420,6 @@ async def get(session, app, request):
 
     current_word_info = Div(id="current_word_info")
     left_panel = Div(
-        # Div(id="next_topics"),
         leaderboard,
         cls='side-panel'
     )
@@ -535,13 +443,11 @@ async def get(session, app, request):
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
         current_word_info,
-        Div(Div(id="past_topic"), cls='past_topic_wrapper', style='padding-top: 10px;'),
         Div(guess_form()),
         cls="middle-panel"
     )
     right_panel = Div(
         Div(top_right_corner),
-        Div(id="past_topic"),
         Div(id='guesses'),
         cls="side-panel"
     )
