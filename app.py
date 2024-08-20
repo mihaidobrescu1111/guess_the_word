@@ -113,6 +113,8 @@ class TaskManager:
             self.task = asyncio.create_task(self.count())
             async with self.guesses_lock:
                 self.guesses = []
+            async with self.current_winners_lock:
+                self.current_winners = []
             await self.broadcast_guesses()
             await self.consume_successful_word()
         
@@ -163,6 +165,8 @@ class TaskManager:
             self.task = asyncio.create_task(self.count())
             async with self.guesses_lock:
                 self.guesses = []
+            async with self.current_winners_lock:
+                self.current_winners = []
             await self.broadcast_guesses()
             await self.consume_successful_word()
 
@@ -487,6 +491,11 @@ async def post(session, guess: str):
         guess_dict['guess'] = 'answered correctly'
         db_winner = db_player[0]
         winner_name = db_winner['name']
+        if winner_name in task_manager.current_winners:
+            add_toast(session, "Cannot guess correctly again", "error")
+            return guess_form()
+        async with task_manager.current_winners_lock:
+            task_manager.current_winners.append(winner_name)
         db_winner['points'] += 5
         players.update(db_winner)
         elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
