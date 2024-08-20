@@ -11,11 +11,11 @@ from typing import List, Tuple
 from auth import HuggingFaceClient
 from difflib import SequenceMatcher
 from js_scripts import ThemeSwitch, enterToGuess
-import llm_req
-import copy
 import env_vars
 import sqlite3
 from datasets import load_dataset
+from how_to_play import rules
+from faq import qa
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -75,40 +75,9 @@ class Word:
     hint4: str
     hint5: str
 
-@dataclass
-class Question:
-    trivia_question: str
-    option_A: str
-    option_B: str
-    option_C: str
-    option_D: str
-    correct_answer: str
-
-
-@dataclass(order=True)
-class Topic:
-    points: int
-    topic: str = field(compare=False)
-    status: str = field(default="pending", compare=False)
-    user: str = field(default="[bot]", compare=False)
-    answers: List[Tuple[str, str]] = field(default_factory=list, compare=False)
-    winners: List[str] = field(default_factory=list, compare=False)
-    question: Question = field(default=None, compare=False)
-    is_from_db: bool = field(default=False, compare=False)
-    def __hash__(self):
-        return hash((self.points, self.topic, self.user))
-
-    def __eq__(self, other):
-        if isinstance(other, Topic):
-            return (self.points, self.topic, self.user) == (other.points, other.topic, other.user)
-        return False
-
 
 class TaskManager:
     def __init__(self, num_executors: int):
-        self.topics = deque()
-        self.topics_lock = asyncio.Lock()
-        self.answers_lock = asyncio.Lock()
         self.executors = [concurrent.futures.ThreadPoolExecutor(max_workers=1) for _ in range(num_executors)]
         self.executor_tasks = [set() for _ in range(num_executors)]
         self.current_word_start_time = None
@@ -116,30 +85,18 @@ class TaskManager:
         self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0 }}  # Track connected WebSocket clients
         self.online_users_lock = threading.Lock()
         self.task = None
-        self.countdown_var = env_vars.QUESTION_COUNTDOWN_SEC
+        self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
         self.all_users = {}
         self.guesses = []
         self.guesses_lock = asyncio.Lock()
         self.current_word = None
 
     def reset(self):
-        self.countdown_var = env_vars.QUESTION_COUNTDOWN_SEC
+        self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
 
     async def run_executor(self, executor_id: int):
         while True:
-            topic_to_process = None
-            async with self.topics_lock:
-                for topic in self.topics:
-                    if all(topic not in tasks for tasks in self.executor_tasks):
-                        if topic.status not in ["successful", "failed"]:
-                            self.executor_tasks[executor_id].add(topic)
-                            topic_to_process = topic
-                            break
-
-            if topic_to_process:
-                await self.update_status()
-                async with self.topics_lock:
-                    self.executor_tasks[executor_id].remove(topic_to_process)
+            await self.update_status()
             await asyncio.sleep(0.1)
 
     async def update_status(self):
@@ -180,8 +137,8 @@ class TaskManager:
 
     async def word_timeout(self):
         try:
-            await asyncio.sleep(env_vars.QUESTION_COUNTDOWN_SEC)
-            logging.debug(f"{env_vars.QUESTION_COUNTDOWN_SEC} seconds timeout completed")
+            await asyncio.sleep(env_vars.WORD_COUNTDOWN_SEC)
+            logging.debug(f"{env_vars.WORD_COUNTDOWN_SEC} seconds timeout completed")
             await self.check_word_completion()
         except asyncio.CancelledError:
             logging.debug("Timeout task cancelled")
@@ -192,7 +149,7 @@ class TaskManager:
         current_time = asyncio.get_event_loop().time()
         logging.debug(current_time)
         logging.debug(self.current_word_start_time)
-        if self.current_word and (current_time - self.current_word_start_time >= env_vars.QUESTION_COUNTDOWN_SEC - 1):
+        if self.current_word and (current_time - self.current_word_start_time >= env_vars.WORD_COUNTDOWN_SEC - 1):
             logging.debug(f"Completing word: {self.current_word.word}")
             should_consume = True
         if should_consume:
@@ -204,35 +161,6 @@ class TaskManager:
                 self.guesses = []
             await self.broadcast_guesses()
             await self.consume_successful_word()
-
-    async def monitor_topics(self):
-        while True:
-            need_default_topics = False
-            async with self.topics_lock:
-                if all(topic.status in ["successful", "failed"] for topic in self.topics):
-                    need_default_topics = True
-
-            if need_default_topics:
-                await self.add_database_topics()
-            await asyncio.sleep(1)  # Check periodically
-    
-    async def add_database_topics(self):
-        async with self.topics_lock:
-            if len(self.topics) < env_vars.MAX_NR_TOPICS_FOR_ALLOW_MORE:
-                try:
-                    trivia_recs = db.q(f"SELECT * FROM {trivias} ORDER BY RANDOM() LIMIT {env_vars.MAX_NR_TOPICS_FOR_ALLOW_MORE}")                   
-                    for trivia_rec in trivia_recs:
-                        self.topics.append(
-                            Topic(points=0,
-                                  topic=trivia_rec["topic"],
-                                  user="[bot]", 
-                                  question=Question(trivia_rec["question"], trivia_rec["option_A"],  trivia_rec["option_B"], trivia_rec["option_C"], trivia_rec["option_D"], "option_{}".format(trivia_rec["correct_option"])),
-                                  is_from_db=True))
-                    self.topics = deque(sorted(self.topics, reverse=True))
-                    logging.debug("Default topics added")
-                except Exception as e:
-                    error_message = str(e)
-                    logging.debug("Issues when generating default topics: " + error_message)
 
     async def send_to_clients(self, element, client=None):
         with self.online_users_lock:
@@ -262,7 +190,7 @@ class TaskManager:
         await self.send_to_clients(Div(current_word_info, id="current_word_info"), client)
 
     async def count(self):
-        self.countdown_var = env_vars.QUESTION_COUNTDOWN_SEC
+        self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
         while self.countdown_var >= 0:
             await self.broadcast_countdown()
             await asyncio.sleep(1)
@@ -324,7 +252,6 @@ async def app_startup():
     app.state.task_manager = task_manager
     results = db.q(f"SELECT {players.c.name}, {players.c.id} FROM {players}")
     task_manager.all_users = {row['name']: row['id'] for row in results}
-    asyncio.create_task(task_manager.monitor_topics())
     for i in range(num_executors):
         asyncio.create_task(task_manager.run_executor(i))
 
@@ -335,7 +262,7 @@ setup_toasts(app)
 
 def guess_form():
     return Div(Form(
-        Input(type='text', name='guess', placeholder="Guess the word", maxlength=f"{env_vars.TOPIC_MAX_LENGTH}",
+        Input(type='text', name='guess', placeholder="Guess the word", maxlength=f"{env_vars.WORD_MAX_LENGTH}",
               required=True, autofocus=True),
         Button('GUESS', cls='primary', style='width: 100%;', id="guess_btn"),
         action='/', hx_post='/guess', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
@@ -478,16 +405,6 @@ async def get(session, app, request):
 
 @rt("/how-to-play")
 def get(app, session):
-    rules = (Div(f"Every question that you see is generated by AI. Every {env_vars.QUESTION_COUNTDOWN_SEC} seconds a new question will appear on your screen and you have to answer correctly in order to accumulate points. You get more points if more users answer correctly after you (this incentivises users to play with their friends).", style="padding: 10px; margin-top: 30px;"),
-             Div("Using your points, you can bid on a new topic of your choice to appear in the future. The more points you bid the faster the topic will be shown. This means that if you bid a topic for 10 points and someone else for 5, yours will be shown first.", style="padding: 10px;"),
-             Div(Div("A topic card can have one of the following statuses, depending on its current state:", style="padding: 10px;"), Ul(
-                 Li("pending - This is the initial status a topic card has. When a pending card is picked up, it's first sent to a LLM (large language model) in order to confirm the topic meets quality criterias (ex: it needs to be in english, it doesn't have to have sensitive content etc.). If the LLM confirms that the proposed topic is ok, the status of the card will become 'computing'. Otherwise, it becomes 'failed'."),
-                 Li("computing - Once a topic card has computing status, it's sent to an LLM to generate a trivia question and possible answers given the received topic. This process can take few seconds. When it finishes, we'll have status successful if all is ok or status failed, if the LLM failed to generate the question for some reason."),
-                 Li("failed - The card failed for some reason (either technical or the user proposed a topic that is not ok)"),
-                 Li("successful - A topic card has status successful when it contains the LLM generated question and the options of that question.")
-                 , style="padding: 10px;")
-                 )
-             )
     return Title("Trivia"), Div(tabs, rules, style="font-size: 20px;", cls="container")
 
 @rt('/stats')
@@ -510,37 +427,6 @@ async def get(session, app, request):
 
 @rt('/faq')
 async def get(session, app, request):
-    qa = [
-        ("I press the Sign in button, but nothing happens. Why?", 
-        "You're probably accessing https://huggingface.co/spaces/Mihaiii/Trivia. Please use https://mihaiii-trivia.hf.space/ instead."),
-        
-        ("Where can I see the source code?", 
-        "The files for this space can be accessed here: https://huggingface.co/spaces/Mihaiii/Trivia/tree/main. The actual source code for the Trivia game repository is available here: https://github.com/mihaiii/trivia."),
-        
-        ("Why do you need me to sign in? What data do you store?", 
-        "We only store a very basic leaderboard table that tracks how many points each player has."),
-        
-        ("Is this website mobile-friendly?", 
-        "Yes."),
-        
-        ("Where can I offer feedback?", 
-        "You can contact us on X: https://x.com/m_chirculescu and https://x.com/mihaidobrescu_."),
-        
-        ("How is the score decided?", 
-        f"The score is calculated based on the following formula: 10 + (number of people who answered correctly after you * 10). You'll receive {env_vars.COMBO_WIN_POINTS} extra points for answering correctly {env_vars.COMBO_CONSECUTIVE_NR_FOR_WIN} questions in a row."),
-        
-        ("If I'm not sure of an answer, should I just guess an option?", 
-        "Yes. You don't lose points for answering incorrectly."),
-        
-        ("A trivia question had an incorrect answer. Where can I report it?", 
-        "We use a language model to generate questions, and sometimes it might provide incorrect information. No need to report it. :)"),
-        
-        ("What languages are supported?", 
-        "Ideally, we accept questions only in English, but we use a language model for checking, and it might not always work perfectly."),
-        
-        ("Is this safe for children?", 
-        "Yes, we review the topics users submit or bid on before displaying or accepting them.")
-    ]
 
     main_content = Ul(*[Li(Strong(pair[0]), Br(), P(pair[1])) for pair in qa], style="padding: 10px; font-size: 20px;")
     return Title("Trivia"), Div(
@@ -564,8 +450,8 @@ async def post(session, guess: str):
         # add points to the user
         return guess_form()
 
-    if len(guess) > env_vars.TOPIC_MAX_LENGTH:
-        add_toast(session, f"The guess max length is {env_vars.TOPIC_MAX_LENGTH} characters", "error")
+    if len(guess) > env_vars.WORD_MAX_LENGTH:
+        add_toast(session, f"The guess max length is {env_vars.WORD_MAX_LENGTH} characters", "error")
         return guess_form()
 
     if len(guess) == 0:
