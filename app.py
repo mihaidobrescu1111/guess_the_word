@@ -135,7 +135,7 @@ class TaskManager:
         if word:
             logging.debug(f"We have a word to broadcast: {word.word}")
             await self.broadcast_current_word()
-            # await self.send_to_clients(guess_form()) doesnt work
+            await self.send_to_clients(Div(guess_form(), id='guess_form'))
             logging.debug(f"Word consumed: {word.word}")
         return word
 
@@ -237,7 +237,6 @@ class TaskManager:
                 self.hints.append(Div(self.current_word.hint3))
         await self.send_to_clients(Div(*self.hints, id='hints'), client)
 
-
 def ensure_db_tables():
     if players not in db.t:
         players.create(id=int, name=str, points=int, pk='id')
@@ -284,15 +283,6 @@ async def app_startup():
 app = FastHTML(hdrs=(css, ThemeSwitch()), ws_hdr=True, on_startup=[app_startup])
 rt = app.route
 setup_toasts(app)
-
-def guess_form(disable_var: bool = False):
-    return Div(Form(
-        Input(type='text', name='guess', placeholder="Guess the word", maxlength=f"{env_vars.WORD_MAX_LENGTH}",
-              required=True, autofocus=True, disabled=disable_var),
-        Button('GUESS', cls='primary', style='width: 100%;', id="guess_btn"),
-        action='/', hx_post='/guess', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
-        id='guess_form'), hx_swap="outerHTML"
-    )
 
 
 @rt("/auth/callback")
@@ -389,7 +379,7 @@ async def get(session, app, request):
         Div(id="countdown"),
         Div(id="current_word_info"),
         Div(id='hints'),
-        Div(guess_form()),
+        Div(id='guess_form'),
         cls="middle-panel"
     )
     right_panel = Div(
@@ -453,6 +443,14 @@ async def get(session, app, request):
         cls="container"
     )
 
+def guess_form(disable_var: bool = False):
+    return Div(Form(
+        Input(type='text', name='guess', placeholder="Guess the word", maxlength=f"{env_vars.WORD_MAX_LENGTH}",
+              required=True, autofocus=True, disabled=disable_var),
+        Button('GUESS', cls='primary', style='width: 100%;', id="guess_btn"),
+        action='/', hx_post='/guess', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
+        id='guess_form'), hx_swap="outerHTML"
+    )
 
 @rt("/guess")
 async def post(session, guess: str):
@@ -485,27 +483,25 @@ async def post(session, guess: str):
         'user_id': db_player[0]['name']
     }
 
-    async with task_manager.guesses_lock:
-        if guess.lower() == task_manager.current_word.word.lower():
-            guess_dict['guess'] = 'answered correctly'
-            db_winner = db_player[0]
-            winner_name = db_winner['name']
-            db_winner['points'] += 5
-            players.update(db_winner)
-            elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
-            for client in task_manager.online_users[winner_name]['ws_clients']:
-                await task_manager.send_to_clients(elem, client)
-            await task_manager.broadcast_leaderboard()
-            task_manager.guesses.append(guess_dict)
-            await task_manager.broadcast_guesses()
-            logging.debug(f"{winner_name} guessed correctly")
-            return guess_form(disable_var=True)
-        else:
-            task_manager.guesses.append(guess_dict)
-            await task_manager.broadcast_guesses()
-            logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
-
-    return guess_form()
+    if guess.lower() == task_manager.current_word.word.lower():
+        guess_dict['guess'] = 'answered correctly'
+        db_winner = db_player[0]
+        winner_name = db_winner['name']
+        db_winner['points'] += 5
+        players.update(db_winner)
+        elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
+        for client in task_manager.online_users[winner_name]['ws_clients']:
+            await task_manager.send_to_clients(elem, client)
+        await task_manager.broadcast_leaderboard()
+        task_manager.guesses.append(guess_dict)
+        await task_manager.broadcast_guesses()
+        logging.debug(f"{winner_name} guessed correctly")
+        return guess_form(disable_var=True)
+    else:
+        task_manager.guesses.append(guess_dict)
+        await task_manager.broadcast_guesses()
+        logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
+        return guess_form()
 
 
 
@@ -522,6 +518,7 @@ async def on_connect(send, ws):
         await task_manager.broadcast_current_word(send)
     await task_manager.broadcast_guesses(send)
     await task_manager.broadcast_leaderboard(send)
+    await task_manager.send_to_clients(client=send, element=Div(guess_form(), id='guess_form'))
 
 
 async def on_disconnect(send, session):
