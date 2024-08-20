@@ -90,6 +90,8 @@ class TaskManager:
         self.guesses_lock = asyncio.Lock()
         self.current_word = None
         self.hints = []
+        self.current_winners = []
+        self.current_winners_lock = asyncio.Lock()
 
     def reset(self):
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -284,10 +286,10 @@ app = FastHTML(hdrs=(css, ThemeSwitch()), ws_hdr=True, on_startup=[app_startup])
 rt = app.route
 setup_toasts(app)
 
-def guess_form():
+def guess_form(disable_var: bool = False):
     return Div(Form(
         Input(type='text', name='guess', placeholder="Guess the word", maxlength=f"{env_vars.WORD_MAX_LENGTH}",
-              required=True, autofocus=True),
+              required=True, autofocus=True, disabled=disable_var),
         Button('GUESS', cls='primary', style='width: 100%;', id="guess_btn"),
         action='/', hx_post='/guess', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
         id='guess_form'), hx_swap="outerHTML"
@@ -495,9 +497,14 @@ async def post(session, guess: str):
             for client in task_manager.online_users[winner_name]['ws_clients']:
                 await task_manager.send_to_clients(elem, client)
             await task_manager.broadcast_leaderboard()
-        task_manager.guesses.append(guess_dict)
-        await task_manager.broadcast_guesses()
-        logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
+            task_manager.guesses.append(guess_dict)
+            await task_manager.broadcast_guesses()
+            logging.debug(f"{winner_name} guessed correctly")
+            return guess_form(disable_var=True)
+        else:
+            task_manager.guesses.append(guess_dict)
+            await task_manager.broadcast_guesses()
+            logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
 
     return guess_form()
 
