@@ -229,7 +229,7 @@ class TaskManager:
             await self.broadcast_current_word()
             await self.broadcast_next_topics()
             await self.compute_winners()
-            await self.broadcast_past_topic()
+            # await self.broadcast_past_topic()
             logging.debug(f"Topic consumed: {topic.topic}")
             logging.debug(f"Length of self.topics: {len(self.topics)}")
         return topic
@@ -420,9 +420,14 @@ class TaskManager:
 
     async def broadcast_guesses(self, client=None):
         guesses = list(self.guesses)
-        guesses_html = [Div(Div(f"{elem['user_id']}: {elem['guess']}") for elem in guesses)]
+        guesses_html = [Div(f"{elem['user_id']}: {elem['guess']}", style="border-bottom: 1px solid #ccc; padding: 5px;") for elem in guesses]
 
-        await self.send_to_clients(Div(*guesses_html, id='guesses'), client)
+        await self.send_to_clients(
+            Div(*guesses_html, id='guesses', style='height: 300px; overflow-y: auto; border: 1px solid #ccc;'),
+            client
+        )
+
+
 
 def ensure_db_tables():
     if players not in db.t:
@@ -707,9 +712,6 @@ async def post(session, guess: str):
         return guess_form()
 
     user_id = session['session_id']
-        
-    # if user_id not in task_manager.all_users:
-    #     task_manager.all_users[user_id] = None
             
     db_player = db.q(f"select * from {players} where {players.c.id} = '{task_manager.all_users[user_id]}'")
 
@@ -721,7 +723,7 @@ async def post(session, guess: str):
     async with task_manager.guesses_lock:
         task_manager.guesses.append(guess_dict)
         await task_manager.broadcast_guesses()
-        logging.debug(f"Guess: {guess}")
+        logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
 
     return guess_form()
 
@@ -741,7 +743,7 @@ async def on_connect(send, ws):
         await task_manager.broadcast_current_question(send)
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
-    await task_manager.broadcast_past_topic(send)
+    # await task_manager.broadcast_past_topic(send)
     await task_manager.broadcast_guesses(send)
 
 
