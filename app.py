@@ -134,8 +134,8 @@ class TaskManager:
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
         if word:
             logging.debug(f"We have a word to broadcast: {word.word}")
-            # await self.broadcast_hints()
             await self.broadcast_current_word()
+            # await self.send_to_clients(guess_form()) doesnt work
             logging.debug(f"Word consumed: {word.word}")
         return word
 
@@ -165,7 +165,6 @@ class TaskManager:
                 self.guesses = []
             await self.broadcast_guesses()
             await self.consume_successful_word()
-        # await self.broadcast_hints()
 
     async def send_to_clients(self, element, client=None):
         with self.online_users_lock:
