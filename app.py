@@ -342,7 +342,6 @@ def get(app, session, code: str = None):
 
 tabs = Nav(
     Div(A("PLAY", href="/", role="button", cls="secondary", id="play")),
-    A("STATS", href="/stats", role="button", cls="secondary", id="stats"),
     Div(
         A("FAQ", href="/faq", role="button", cls="secondary"),
         Div(id="theme-toggle"),
@@ -418,7 +417,6 @@ async def get(session, app, request):
     )
     main_tabs = Nav(
         A("HOW TO PLAY?", href="/how-to-play", role="button", cls="secondary", id="how-to-play"),
-        A("STATS", href="/stats", role="button", cls="secondary", id="stats"),
         Div(
             A("FAQ", href="/faq", role="button", cls="secondary"),
             Div(id="theme-toggle"),
@@ -438,24 +436,6 @@ async def get(session, app, request):
 @rt("/how-to-play")
 def get(app, session):
     return Title("Guess the word"), Div(tabs, rules, style="font-size: 20px;", cls="container")
-
-@rt('/stats')
-async def get(session, app, request):
-    task_manager = app.state.task_manager
-    db_player = db.q(f"select * from {players} order by points desc limit 20")
-    cells = [Tr(Td(f"{idx}.", style="padding: 5px; width: 50px; text-align: center;"), Td(row['name'], style="padding: 5px;"), Td(row['points'], style="padding: 5px; text-align: center;")) for idx, row in enumerate(db_player, start=1)]
-    with task_manager.online_users_lock:
-        c = [c for c in task_manager.online_users if c != "unassigned_clients"]
-        
-    main_content = Div(
-        Div(H2("Logged in users (" + str(len(c)) + "):"), Div(", ".join(c))),
-        Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('HuggingFace Username')), Th(B("Points"), style="text-align: center;")), *cells))
-    )
-    return Title("Guess the word"), Div(
-        tabs,
-        main_content,
-        cls="container"
-    )
 
 @rt('/faq')
 async def get(session, app, request):
@@ -526,6 +506,8 @@ async def post(session, guess: str):
         logging.debug(f"{winner_name} guessed correctly")
         return guess_form(disable_var=True)
     else:
+        if similar(guess.lower(), task_manager.current_word.word.lower()) >= 0.75:
+            add_toast(session, "You're close!", "info")
         task_manager.guesses.append(guess_dict)
         await task_manager.broadcast_guesses()
         logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
