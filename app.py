@@ -89,6 +89,7 @@ class TaskManager:
         self.guesses = []
         self.guesses_lock = asyncio.Lock()
         self.current_word = None
+        self.hints = []
 
     def reset(self):
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -126,10 +127,12 @@ class TaskManager:
             hint5=query['hint5'],
         )
         self.current_word = word
+        self.hints = []
         self.current_word_start_time = asyncio.get_event_loop().time()
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
         if word:
             logging.debug(f"We have a word to broadcast: {word.word}")
+            # await self.broadcast_hints()
             await self.broadcast_current_word()
             logging.debug(f"Word consumed: {word.word}")
         return word
@@ -160,6 +163,7 @@ class TaskManager:
                 self.guesses = []
             await self.broadcast_guesses()
             await self.consume_successful_word()
+        # await self.broadcast_hints()
 
     async def send_to_clients(self, element, client=None):
         with self.online_users_lock:
@@ -192,6 +196,7 @@ class TaskManager:
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
         while self.countdown_var >= 0:
             await self.broadcast_countdown()
+            await self.broadcast_hints()
             await asyncio.sleep(1)
             self.countdown_var -= 1
 
@@ -218,6 +223,18 @@ class TaskManager:
             Div(H1("Leaderboard", style="text-align: center;"), Table(Tr(Th(B("Rank")), Th(B('Username')), Th(B("Points"), style="text-align: center;")), *cells))
         )
         await self.send_to_clients(Div(leaderboard, id='leaderboard'), client)
+
+    async def broadcast_hints(self, client=None):
+        first = env_vars.WORD_COUNTDOWN_SEC / 3 * 2
+        second = env_vars.WORD_COUNTDOWN_SEC / 3
+        if self.current_word:
+            if self.countdown_var >= first and Div(self.current_word.hint1) not in self.hints:
+                self.hints.append(Div(self.current_word.hint1))
+            if second <= self.countdown_var <= first and Div(self.current_word.hint2) not in self.hints:
+                self.hints.append(Div(self.current_word.hint2))
+            if self.countdown_var <= second and Div(self.current_word.hint3) not in self.hints:
+                self.hints.append(Div(self.current_word.hint3))
+        await self.send_to_clients(Div(*self.hints, id='hints'), client)
 
 
 def ensure_db_tables():
@@ -370,6 +387,7 @@ async def get(session, app, request):
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
         Div(id="current_word_info"),
+        Div(id='hints'),
         Div(guess_form()),
         cls="middle-panel"
     )
@@ -444,6 +462,10 @@ async def post(session, guess: str):
     task_manager = app.state.task_manager
 
     guess = guess.strip()
+
+    if " " in guess:
+        add_toast(session, "You can only send one word", "error")
+        return guess_form()
 
     if len(guess) > env_vars.WORD_MAX_LENGTH:
         add_toast(session, f"The guess max length is {env_vars.WORD_MAX_LENGTH} characters", "error")
