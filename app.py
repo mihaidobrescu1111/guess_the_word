@@ -394,7 +394,6 @@ class TaskManager:
                 Div(self.current_topic.user, cls="item left"),
                 Div(f"{self.current_topic.points} pts", cls="item right"),
                 cls="card"),
-            unselectedOptions()
         )
         await self.send_to_clients(Div(current_question_info, id="current_question_info"), client)
 
@@ -402,10 +401,7 @@ class TaskManager:
         current_word_info = Div(
             Div(
                 Div(self.current_word.word),
-                # Div(self.current_topic.user, cls="item left"),
-                # Div(f"{self.current_topic.points} pts", cls="item right"),
                 cls="card"),
-            # unselectedOptions()
         )
         await self.send_to_clients(Div(current_word_info, id="current_word_info"), client)
 
@@ -475,143 +471,6 @@ async def app_startup():
 app = FastHTML(hdrs=(css, ThemeSwitch()), ws_hdr=True, on_startup=[app_startup])
 rt = app.route
 setup_toasts(app)
-
-@rt('/choose_option_A')
-async def post(session, app):
-    if 'session_id' not in session:
-        add_toast(session, SIGN_IN_TEXT, "error")
-        return unselectedOptions()
-    
-    task_manager = app.state.task_manager
-    
-    async with task_manager.answers_lock:
-        task_manager.current_topic.answers = [a for a in task_manager.current_topic.answers if a[0] != session['session_id']]
-        task_manager.current_topic.answers.append((session['session_id'], "option_A"))
-        
-    div_a = Div(
-        Button(task_manager.current_topic.question.option_A, cls="primarly", hx_post="/choose_option_A",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_B, cls="secondary", hx_post="/choose_option_B",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_C, cls="secondary", hx_post="/choose_option_C",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_D, cls="secondary", hx_post="/choose_option_D",
-               hx_target="#question_options", disabled=True),
-        cls="options",
-        style="display: flex; flex-direction: column; gap: 10px; ",
-        id="question_options"
-    )
-    
-    for client in task_manager.online_users[session['session_id']]['ws_clients']:
-        await task_manager.send_to_clients(div_a, client)
-
-
-@rt('/choose_option_B')
-async def post(session):
-    if 'session_id' not in session:
-        add_toast(session, SIGN_IN_TEXT, "error")
-        return unselectedOptions()
-    
-    task_manager = app.state.task_manager
-    
-    async with task_manager.answers_lock:
-        task_manager.current_topic.answers = [a for a in task_manager.current_topic.answers if a[0] != session['session_id']]
-        task_manager.current_topic.answers.append((session['session_id'], "option_B"))
-    
-    div_b = Div(
-        Button(task_manager.current_topic.question.option_A, cls="secondary", hx_post="/choose_option_A",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_B, cls="primarly", hx_post="/choose_option_B",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_C, cls="secondary", hx_post="/choose_option_C",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_D, cls="secondary", hx_post="/choose_option_D",
-               hx_target="#question_options", disabled=True),
-        cls="options",
-        style="display: flex; flex-direction: column; gap: 10px; ",
-        id="question_options"
-    )
-    
-    for client in task_manager.online_users[session['session_id']]['ws_clients']:
-        await task_manager.send_to_clients(div_b, client)
-
-
-@rt('/choose_option_C')
-async def post(session, app):
-    if 'session_id' not in session:
-        add_toast(session, SIGN_IN_TEXT, "error")
-        return unselectedOptions()
-    
-    task_manager = app.state.task_manager
-    
-    async with task_manager.answers_lock:
-        task_manager.current_topic.answers = [a for a in task_manager.current_topic.answers if a[0] != session['session_id']]
-        task_manager.current_topic.answers.append((session['session_id'], "option_C"))
-        
-    div_c = Div(
-        Button(task_manager.current_topic.question.option_A, cls="secondary", hx_post="/choose_option_A",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_B, cls="secondary", hx_post="/choose_option_B",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_C, cls="primarly", hx_post="/choose_option_C",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_D, cls="secondary", hx_post="/choose_option_D",
-               hx_target="#question_options", disabled=True),
-        cls="options",
-        style="display: flex; flex-direction: column; gap: 10px; ",
-        id="question_options"
-    )
-    
-    for client in task_manager.online_users[session['session_id']]['ws_clients']:
-        await task_manager.send_to_clients(div_c, client)
-
-
-@rt('/choose_option_D')
-async def post(session):
-    if 'session_id' not in session:
-        add_toast(session, SIGN_IN_TEXT, "error")
-        return unselectedOptions()
-    
-    task_manager = app.state.task_manager
-    
-    async with task_manager.answers_lock:
-        task_manager.current_topic.answers = [a for a in task_manager.current_topic.answers if a[0] != session['session_id']]
-        task_manager.current_topic.answers.append((session['session_id'], "option_D"))
-        
-    div_d = Div(
-        Button(task_manager.current_topic.question.option_A, cls="secondary", hx_post="/choose_option_A",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_B, cls="secondary", hx_post="/choose_option_B",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_C, cls="secondary", hx_post="/choose_option_C",
-               hx_target="#question_options", disabled=True),
-        Button(task_manager.current_topic.question.option_D, cls="primarly", hx_post="/choose_option_D",
-               hx_target="#question_options", disabled=True),
-        cls="options",
-        style="display: flex; flex-direction: column; gap: 10px; ",
-        id="question_options"
-    )
-    
-    for client in task_manager.online_users[session['session_id']]['ws_clients']:
-        await task_manager.send_to_clients(div_d, client)
-
-
-def unselectedOptions():
-    task_manager = app.state.task_manager
-    return Div(
-        Button(task_manager.current_topic.question.option_A, cls="primary", hx_post="/choose_option_A",
-                hx_target="#question_options"),
-        Button(task_manager.current_topic.question.option_B, cls="primary", hx_post="/choose_option_B",
-                hx_target="#question_options"),
-        Button(task_manager.current_topic.question.option_C, cls="primary", hx_post="/choose_option_C",
-                hx_target="#question_options"),
-        Button(task_manager.current_topic.question.option_D, cls="primary", hx_post="/choose_option_D",
-                hx_target="#question_options"),
-        cls="options",
-        style="display: flex; flex-direction: column; gap: 10px; ",
-        id="question_options"
-    )
-
 
 def guess_form():
     return Div(Form(
@@ -691,7 +550,6 @@ async def get(session, app, request):
         else:
             current_points = db_player[0]['points']
 
-    current_question_info = Div(id="current_question_info")
     current_word_info = Div(id="current_word_info")
     left_panel = Div(
         Div(id="next_topics"),
@@ -716,7 +574,6 @@ async def get(session, app, request):
     middle_panel = Div(
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
-        current_question_info,
         current_word_info,
         Div(Div(id="past_topic"), cls='past_topic_wrapper', style='padding-top: 10px;'),
         Div(guess_form()),
@@ -832,8 +689,14 @@ async def post(session, guess: str):
     # if 'session_id' not in session:
     #     add_toast(session, SIGN_IN_TEXT, "error")
     #     return guess_form()
+    
+    task_manager = app.state.task_manager
 
     guess = guess.strip()
+
+    if guess.lower() == task_manager.current_word.word.lower():
+        # add points to the user
+        return guess_form()
 
     if len(guess) > env_vars.TOPIC_MAX_LENGTH:
         add_toast(session, f"The guess max length is {env_vars.TOPIC_MAX_LENGTH} characters", "error")
@@ -843,7 +706,7 @@ async def post(session, guess: str):
         add_toast(session, "Cannot send empty guess", "error")
         return guess_form()
 
-    task_manager = app.state.task_manager
+    
 
     async with task_manager.guesses_lock:
         task_manager.guesses.append(guess)
