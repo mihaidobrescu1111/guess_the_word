@@ -16,12 +16,13 @@ import sqlite3
 from datasets import load_dataset
 from how_to_play import rules
 from faq import qa
+import random
 
 logging.basicConfig(level=logging.DEBUG)
 
 SIGN_IN_TEXT = """Only logged users can play. Press on either "Sign in with HuggingFace" or "Sign in with Google"."""
 
-db_path = f'{env_vars.DB_DIRECTORY}trivia.db'
+db_path = f'{env_vars.DB_DIRECTORY}guess.db'
 db = database(db_path)
 players = db.t.players
 words = db.t.words
@@ -92,6 +93,8 @@ class TaskManager:
         self.hints = []
         self.current_winners = []
         self.current_winners_lock = asyncio.Lock()
+        self.hidden_word = None
+        self.random_letters = None
 
     def reset(self):
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -132,6 +135,8 @@ class TaskManager:
         )
         self.current_word = word
         self.hints = []
+        self.hidden_word = '_' * len(self.current_word.word)
+        self.random_letters = random.sample(range(0, len(self.current_word.word)), 3)
         self.current_word_start_time = asyncio.get_event_loop().time()
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
         if word:
@@ -202,6 +207,7 @@ class TaskManager:
         while self.countdown_var >= 0:
             await self.broadcast_countdown()
             await self.broadcast_hints()
+            await self.broadcast_letters()
             await asyncio.sleep(1)
             self.countdown_var -= 1
 
@@ -239,6 +245,19 @@ class TaskManager:
             if self.countdown_var <= second and Div(self.current_word.hint3) not in self.hints:
                 self.hints.append(Div(self.current_word.hint3))
         await self.send_to_clients(Div(*self.hints, id='hints'), client)
+    
+    async def broadcast_letters(self, client=None):
+        first = env_vars.WORD_COUNTDOWN_SEC / 4 * 3
+        second = env_vars.WORD_COUNTDOWN_SEC / 4 * 2
+        third = env_vars.WORD_COUNTDOWN_SEC / 4
+        if self.current_word and self.hidden_word:
+            if first >= self.countdown_var >= second:
+                self.hidden_word = self.hidden_word[:self.random_letters[0]] + self.current_word.word[self.random_letters[0]] + self.hidden_word[self.random_letters[0] + 1:]
+            if second >= self.countdown_var >= third:
+                self.hidden_word = self.hidden_word[:self.random_letters[1]] + self.current_word.word[self.random_letters[1]] + self.hidden_word[self.random_letters[1] + 1:]
+            if third >= self.countdown_var and len(self.current_word.word) > 3:
+                self.hidden_word = self.hidden_word[:self.random_letters[2]] + self.current_word.word[self.random_letters[2]] + self.hidden_word[self.random_letters[2] + 1:]
+        await self.send_to_clients(Div(self.hidden_word, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), client)
 
 def ensure_db_tables():
     if players not in db.t:
@@ -246,7 +265,7 @@ def ensure_db_tables():
 
     if words not in db.t:
         # bulk import from HF dataset
-        dataset = load_dataset("Mihaiii/guess_the_word", split='train')
+        dataset = load_dataset("Mihaiii/guess_the_word-2", split='train')
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -380,6 +399,7 @@ async def get(session, app, request):
     middle_panel = Div(
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
+        Div(id='hidden_word'),
         Div(id="current_word_info"),
         Div(id='hints'),
         Div(id='guess_form'),
