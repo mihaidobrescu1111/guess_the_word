@@ -247,7 +247,7 @@ class TaskManager:
                 self.hints.append(self.current_word.hint2)
             if self.countdown_var <= second and self.current_word.hint3 not in self.hints:
                 self.hints.append(self.current_word.hint3)
-        await self.send_to_clients(Div((Div(hint) for hint in self.hints), id='hints'), client)
+        await self.send_to_clients(Div((Div(f"Hint {idx}: {hint}", style='font-size: 20px;') for idx, hint in enumerate(self.hints, 1)), id='hints', style='border: 1px solid #ccc; height: 200px; padding: 10px; margin-top: 20px;'))
     
     async def broadcast_letters(self, client=None):
         first = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 3)
@@ -404,7 +404,7 @@ async def get(session, app, request):
         Div(top_right_corner, cls='login_wrapper'),
         Div(id="countdown"),
         Div(id='hidden_word'),
-        Div(id="current_word_info"),
+        # Div(id="current_word_info"),
         Div(id='hints'),
         Div(id='buy_form'),
         cls="middle-panel"
@@ -522,8 +522,8 @@ async def post(session, guess: str):
 
 def buy_form():
     return Div(Form(
-            Button('BUY', cls='primary', style='width: 100%;', id="buy_btn"),
-            action='/', hx_post='/buy', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
+            Button('BUY A LETTER', cls='primary', style='width: 100%;', id="buy_btn"),
+            action='/', hx_post='/buy', style='padding: 10px; width: 50%; margin: 10px auto;',
             id='buy_form'), hx_swap="outerHTML"
         )
 
