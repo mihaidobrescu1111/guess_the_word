@@ -252,12 +252,12 @@ class TaskManager:
         await self.send_to_clients(Div((Div(hint) for hint in self.hints), id='hints'), client)
     
     async def broadcast_letters(self, client=None):
-        first = env_vars.WORD_COUNTDOWN_SEC / 4 * 3
-        second = env_vars.WORD_COUNTDOWN_SEC / 4 * 2
-        if self.current_word and self.hidden_word:
-            if first >= self.countdown_var >= second:
-                with self.online_users_lock:
-                    for client_key in self.online_users:
+        first = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 3)
+        second = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 2)
+        if self.current_word and self.hidden_word and self.countdown_var in [first, second]:
+            idx = 0 if self.countdown_var == first else 1
+            with self.online_users_lock:
+                for client_key in self.online_users:
                         if self.random_letters[0] not in self.online_users[client_key]['letters_shown']:
                             self.online_users[client_key]['letters_shown'].append(self.random_letters[0])
             if second >= self.countdown_var:
