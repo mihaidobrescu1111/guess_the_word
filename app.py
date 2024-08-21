@@ -222,8 +222,8 @@ class TaskManager:
         guesses_html = [Div(
             f"{elem['user_id']}: {elem['guess']}",
             style=f"border-bottom: 1px solid #ccc; padding: 5px; background-color: {'#77ab59;' if elem['guess'] == 'answered correctly' else ''}"
-        ) for elem in guesses[::-1]]
-        await self.send_to_clients(Div(*guesses_html, id='guesses', style='height: 800px; overflow-y: auto; border: 1px solid #ccc; display: flex; flex-direction: column-reverse;'),client)
+        ) for elem in guesses]
+        await self.send_to_clients(Div(*guesses_html, id='guesses', style='height: 700px; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end; border: 1px solid #ccc; '),client)
 
     async def broadcast_leaderboard(self, client=None):
         db_player = db.q(f"select * from {players} order by points desc limit 20")
@@ -238,13 +238,13 @@ class TaskManager:
         first = env_vars.WORD_COUNTDOWN_SEC / 3 * 2
         second = env_vars.WORD_COUNTDOWN_SEC / 3
         if self.current_word:
-            if self.countdown_var >= first and Div(self.current_word.hint1) not in self.hints:
-                self.hints.append(Div(self.current_word.hint1))
-            if second <= self.countdown_var <= first and Div(self.current_word.hint2) not in self.hints:
-                self.hints.append(Div(self.current_word.hint2))
-            if self.countdown_var <= second and Div(self.current_word.hint3) not in self.hints:
-                self.hints.append(Div(self.current_word.hint3))
-        await self.send_to_clients(Div(*self.hints, id='hints'), client)
+            if self.countdown_var >= first and self.current_word.hint1 not in self.hints:
+                self.hints.append(self.current_word.hint1)
+            if second <= self.countdown_var <= first and self.current_word.hint2 not in self.hints:
+                self.hints.append(self.current_word.hint2)
+            if self.countdown_var <= second and self.current_word.hint3 not in self.hints:
+                self.hints.append(self.current_word.hint3)
+        await self.send_to_clients(Div((Div(hint) for hint in self.hints), id='hints'), client)
     
     async def broadcast_letters(self, client=None):
         first = env_vars.WORD_COUNTDOWN_SEC / 4 * 3
@@ -402,12 +402,12 @@ async def get(session, app, request):
         Div(id='hidden_word'),
         Div(id="current_word_info"),
         Div(id='hints'),
-        Div(id='guess_form'),
         cls="middle-panel"
     )
     right_panel = Div(
         Div(top_right_corner),
         Div(id='guesses'),
+        Div(id='guess_form'),
         cls="side-panel"
     )
     main_content = Div(
