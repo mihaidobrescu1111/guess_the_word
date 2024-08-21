@@ -141,7 +141,7 @@ class TaskManager:
             for client_key in self.online_users:
                 self.online_users[client_key]['letters_shown'] = []
                 self.online_users[client_key]['available_letters'] = [i for i in range(len(self.current_word.word))]
-        self.random_letters = random.sample(range(0, len(self.current_word.word)), len(self.current_word.word))
+        self.random_letters = random.sample(range(0, len(self.current_word.word)), 2)
         self.current_word_start_time = asyncio.get_event_loop().time()
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
         if word:
@@ -256,11 +256,17 @@ class TaskManager:
         second = env_vars.WORD_COUNTDOWN_SEC / 4 * 2
         if self.current_word and self.hidden_word:
             if first >= self.countdown_var >= second:
-                self.hidden_word = self.hidden_word[:self.random_letters[0]] + self.current_word.word[self.random_letters[0]] + self.hidden_word[self.random_letters[0] + 1:]
-            if second >= self.countdown_var and len(self.current_word.word) > 5:
-                self.hidden_word = self.hidden_word[:self.random_letters[1]] + self.current_word.word[self.random_letters[1]] + self.hidden_word[self.random_letters[1] + 1:]
+                # self.hidden_word = self.hidden_word[:self.random_letters[0]] + self.current_word.word[self.random_letters[0]] + self.hidden_word[self.random_letters[0] + 1:]
+                with self.online_users_lock:
+                    for client_key in self.online_users:
+                        self.online_users[client_key]['letters_shown'].append(self.random_letters[0])
+            if second >= self.countdown_var:
+                # self.hidden_word = self.hidden_word[:self.random_letters[1]] + self.current_word.word[self.random_letters[1]] + self.hidden_word[self.random_letters[1] + 1:]
+                with self.online_users_lock:
+                    for client_key in self.online_users:
+                        self.online_users[client_key]['letters_shown'].append(self.random_letters[1])
         for client_key in [key for key in self.online_users]:
-            word_to_show = [self.current_word.word[i] if i in self.online_users[client_key]['letters_shown'] else "_" for i in range(len(self.current_word.word))]
+            word_to_show = ''.join(self.current_word.word[i] if i in self.online_users[client_key]['letters_shown'] else "_" for i in range(len(self.current_word.word)))
             await self.send_to_clients(Div(word_to_show, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), *list(self.online_users[client_key]['ws_clients']))
         # await self.send_to_clients(Div(self.hidden_word, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), client)
 
@@ -539,7 +545,12 @@ async def post(session):
     user_id = session['session_id']
     if user_id in task_manager.online_users:
         try:
+            if sorted(task_manager.online_users[user_id]['available_letters']) == sorted(task_manager.random_letters):
+                add_toast(session, "Cannot buy anymore letters", "error")
+                return buy_form()
             letter = random.choice(task_manager.online_users[user_id]['available_letters'])
+            while letter in task_manager.random_letters:
+                letter = random.choice(task_manager.online_users[user_id]['available_letters'])
             task_manager.online_users[user_id]['letters_shown'].append(letter)
             task_manager.online_users[user_id]['available_letters'].remove(letter)
         except IndexError:
