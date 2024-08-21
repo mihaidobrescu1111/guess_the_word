@@ -93,9 +93,8 @@ class TaskManager:
         self.hints = []
         self.current_winners = []
         self.current_winners_lock = asyncio.Lock()
-        self.hidden_word = None
         self.random_letters = None
-        self.loop_lock = asyncio.Lock()
+        self.current_letters = []
 
     def reset(self):
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -136,7 +135,6 @@ class TaskManager:
         )
         self.current_word = word
         self.hints = []
-        self.hidden_word = '_' * len(self.current_word.word)
         self.random_letters = random.sample(range(0, len(self.current_word.word)), 2)
         with self.online_users_lock:
             for client_key in self.online_users:
@@ -254,8 +252,9 @@ class TaskManager:
     async def broadcast_letters(self, client=None):
         first = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 3)
         second = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 2)
-        if self.current_word and self.hidden_word and self.countdown_var in [first, second]:
+        if self.current_word and self.countdown_var in [first, second]:
             idx = [first, second].index(self.countdown_var)
+            self.current_letters.append(self.random_letters[idx])
             with self.online_users_lock:
                 for client_key in self.online_users:
                     self.online_users[client_key]['letters_shown'].append(self.random_letters[idx])
@@ -558,7 +557,7 @@ async def on_connect(send, ws):
     task_manager = app.state.task_manager
     with task_manager.online_users_lock:
         if client_key not in task_manager.online_users:
-            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0, 'letters_shown': [], 'available_letters': [i for i in range(len(task_manager.current_word.word)) if i not in task_manager.random_letters]}
+            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0, 'letters_shown': task_manager.current_letters, 'available_letters': list(set([i for i in range(len(task_manager.current_word.word)) if i not in task_manager.random_letters]) - set(task_manager.current_letters))}
         task_manager.online_users[client_key]['ws_clients'].add(send)
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
