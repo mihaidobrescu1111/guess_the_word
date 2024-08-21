@@ -136,6 +136,7 @@ class TaskManager:
         self.current_word = word
         self.hints = []
         self.random_letters = random.sample(range(0, len(self.current_word.word)), 2)
+        self.current_letters = []
         with self.online_users_lock:
             for client_key in self.online_users:
                 self.online_users[client_key]['letters_shown'] = []
