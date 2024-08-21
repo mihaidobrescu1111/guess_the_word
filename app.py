@@ -126,7 +126,7 @@ class TaskManager:
         word = None
         query = db.q(f"SELECT * FROM {words} WHERE LENGTH(word) > 5 ORDER BY RANDOM() LIMIT 1")[0]
         word = Word(
-            word=query['word'],
+            word=query['word'].upper(),
             hint1=query['hint1'],
             hint2=query['hint2'],
             hint3=query['hint3'],
@@ -536,6 +536,13 @@ async def post(session):
     task_manager = app.state.task_manager
 
     user_id = session['session_id']
+
+    db_player = db.q(f"select * from {players} where {players.c.id} = '{task_manager.all_users[user_id]}'")[0]
+
+    if db_player in task_manager.current_winners:
+        add_toast(session, "No need to buy anymore letters", "info")
+        return buy_form()
+
     if user_id in task_manager.online_users:
         try:
             if len(task_manager.online_users[user_id]['available_letters']) == 0:
@@ -544,6 +551,12 @@ async def post(session):
             letter = random.choice(task_manager.online_users[user_id]['available_letters'])
             task_manager.online_users[user_id]['letters_shown'].append(letter)
             task_manager.online_users[user_id]['available_letters'].remove(letter)
+            db_player['points'] -= 10
+            players.update(db_player)
+            elem = Div(db_player['name'] + ": " + str(db_player['points']) + " pts", cls='login', id='login_points')
+            for client in task_manager.online_users[db_player['name']]['ws_clients']:
+                await task_manager.send_to_clients(elem, client)
+            await task_manager.broadcast_leaderboard()
         except IndexError:
             add_toast(session, "Cannot buy anymore letters", "error")
 
