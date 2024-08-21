@@ -82,7 +82,7 @@ class TaskManager:
         self.executor_tasks = [set() for _ in range(num_executors)]
         self.current_word_start_time = None
         self.current_timeout_task = None
-        self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0, 'letters_shown': [] }}  # Track connected WebSocket clients
+        self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0, 'letters_shown': [], 'available_letters': [] }}  # Track connected WebSocket clients
         self.online_users_lock = threading.Lock()
         self.task = None
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -137,6 +137,10 @@ class TaskManager:
         self.current_word = word
         self.hints = []
         self.hidden_word = '_' * len(self.current_word.word)
+        with self.online_users_lock:
+            for client_key in self.online_users:
+                self.online_users[client_key]['letters_shown'] = []
+                self.online_users[client_key]['available_letters'] = [i for i in range(len(self.current_word.word))]
         self.random_letters = random.sample(range(0, len(self.current_word.word)), len(self.current_word.word))
         self.current_word_start_time = asyncio.get_event_loop().time()
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
@@ -239,13 +243,13 @@ class TaskManager:
         first = env_vars.WORD_COUNTDOWN_SEC / 3 * 2
         second = env_vars.WORD_COUNTDOWN_SEC / 3
         if self.current_word:
-            if self.countdown_var >= first and Div(self.current_word.hint1) not in self.hints:
-                self.hints.append(Div(self.current_word.hint1))
-            if second <= self.countdown_var <= first and Div(self.current_word.hint2) not in self.hints:
-                self.hints.append(Div(self.current_word.hint2))
-            if self.countdown_var <= second and Div(self.current_word.hint3) not in self.hints:
-                self.hints.append(Div(self.current_word.hint3))
-        await self.send_to_clients(Div(*self.hints, id='hints'), client)
+            if self.countdown_var >= first and self.current_word.hint1 not in self.hints:
+                self.hints.append(self.current_word.hint1)
+            if second <= self.countdown_var <= first and self.current_word.hint2 not in self.hints:
+                self.hints.append(self.current_word.hint2)
+            if self.countdown_var <= second and self.current_word.hint3 not in self.hints:
+                self.hints.append(self.current_word.hint3)
+        await self.send_to_clients(Div((Div(hint) for hint in self.hints), id='hints'), client)
     
     async def broadcast_letters(self, client=None):
         first = env_vars.WORD_COUNTDOWN_SEC / 4 * 3
@@ -255,10 +259,11 @@ class TaskManager:
                 self.hidden_word = self.hidden_word[:self.random_letters[0]] + self.current_word.word[self.random_letters[0]] + self.hidden_word[self.random_letters[0] + 1:]
             if second >= self.countdown_var and len(self.current_word.word) > 5:
                 self.hidden_word = self.hidden_word[:self.random_letters[1]] + self.current_word.word[self.random_letters[1]] + self.hidden_word[self.random_letters[1] + 1:]
-        # for client_key in [key for key in self.online_users]:
-            # word_to_show = [self.current_word.word[i] if i in self.online_users[client_key]['letters_shown'] else "_" for i in range(len(self.current_word.word))]
-            # await self.send_to_clients(Div(word_to_show, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), *list(self.online_users[client_key]['ws_clients']))
-        await self.send_to_clients(Div(self.hidden_word, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), client)
+        for client_key in [key for key in self.online_users]:
+            word_to_show = [self.current_word.word[i] if i in self.online_users[client_key]['letters_shown'] else "_" for i in range(len(self.current_word.word))]
+            await self.send_to_clients(Div(word_to_show, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), *list(self.online_users[client_key]['ws_clients']))
+        # await self.send_to_clients(Div(self.hidden_word, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), client)
+
 
 def ensure_db_tables():
     if players not in db.t:
@@ -533,7 +538,12 @@ async def post(session):
 
     user_id = session['session_id']
     if user_id in task_manager.online_users:
-        task_manager.online_users[user_id]['letters_shown'] = [0,1,2]
+        try:
+            letter = random.choice(task_manager.online_users[user_id]['available_letters'])
+            task_manager.online_users[user_id]['letters_shown'].append(letter)
+            task_manager.online_users[user_id]['available_letters'].remove(letter)
+        except IndexError:
+            add_toast(session, "Cannot buy anymore letters", "error")
 
     return buy_form()
 
@@ -545,7 +555,7 @@ async def on_connect(send, ws):
     task_manager = app.state.task_manager
     with task_manager.online_users_lock:
         if client_key not in task_manager.online_users:
-            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0, 'letters_shown': []}
+            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0, 'letters_shown': [], 'available_letters': [i for i in range(len(task_manager.current_word.word))]}
         task_manager.online_users[client_key]['ws_clients'].add(send)
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
