@@ -82,7 +82,7 @@ class TaskManager:
         self.executor_tasks = [set() for _ in range(num_executors)]
         self.current_word_start_time = None
         self.current_timeout_task = None
-        self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0 }}  # Track connected WebSocket clients
+        self.online_users = {"unassigned_clients": {'ws_clients': set(), 'combo_count': 0, 'letters_shown': [] }}  # Track connected WebSocket clients
         self.online_users_lock = threading.Lock()
         self.task = None
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -95,6 +95,7 @@ class TaskManager:
         self.current_winners_lock = asyncio.Lock()
         self.hidden_word = None
         self.random_letters = None
+        self.loop_lock = asyncio.Lock()
 
     def reset(self):
         self.countdown_var = env_vars.WORD_COUNTDOWN_SEC
@@ -124,7 +125,7 @@ class TaskManager:
 
     async def consume_successful_word(self):
         word = None
-        query = db.q(f"SELECT * FROM {words} ORDER BY RANDOM() LIMIT 1")[0]
+        query = db.q(f"SELECT * FROM {words} WHERE LENGTH(word) > 5 ORDER BY RANDOM() LIMIT 1")[0]
         word = Word(
             word=query['word'],
             hint1=query['hint1'],
@@ -136,7 +137,7 @@ class TaskManager:
         self.current_word = word
         self.hints = []
         self.hidden_word = '_' * len(self.current_word.word)
-        self.random_letters = random.sample(range(0, len(self.current_word.word)), 3)
+        self.random_letters = random.sample(range(0, len(self.current_word.word)), len(self.current_word.word))
         self.current_word_start_time = asyncio.get_event_loop().time()
         self.current_timeout_task = asyncio.create_task(self.word_timeout())
         if word:
@@ -223,7 +224,7 @@ class TaskManager:
             f"{elem['user_id']}: {elem['guess']}",
             style=f"border-bottom: 1px solid #ccc; padding: 5px; background-color: {'#77ab59;' if elem['guess'] == 'answered correctly' else ''}"
         ) for elem in guesses[::-1]]
-        await self.send_to_clients(Div(*guesses_html, id='guesses', style='height: 800px; overflow-y: auto; border: 1px solid #ccc; display: flex; flex-direction: column-reverse;'),client)
+        await self.send_to_clients(Div(*guesses_html, id='guesses', style='height: 700px; overflow-y: auto; border: 1px solid #ccc; display: flex; flex-direction: column-reverse;'),client)
 
     async def broadcast_leaderboard(self, client=None):
         db_player = db.q(f"select * from {players} order by points desc limit 20")
@@ -249,14 +250,14 @@ class TaskManager:
     async def broadcast_letters(self, client=None):
         first = env_vars.WORD_COUNTDOWN_SEC / 4 * 3
         second = env_vars.WORD_COUNTDOWN_SEC / 4 * 2
-        third = env_vars.WORD_COUNTDOWN_SEC / 4
         if self.current_word and self.hidden_word:
             if first >= self.countdown_var >= second:
                 self.hidden_word = self.hidden_word[:self.random_letters[0]] + self.current_word.word[self.random_letters[0]] + self.hidden_word[self.random_letters[0] + 1:]
-            if second >= self.countdown_var >= third:
+            if second >= self.countdown_var and len(self.current_word.word) > 5:
                 self.hidden_word = self.hidden_word[:self.random_letters[1]] + self.current_word.word[self.random_letters[1]] + self.hidden_word[self.random_letters[1] + 1:]
-            if third >= self.countdown_var and len(self.current_word.word) > 3:
-                self.hidden_word = self.hidden_word[:self.random_letters[2]] + self.current_word.word[self.random_letters[2]] + self.hidden_word[self.random_letters[2] + 1:]
+        # for client_key in [key for key in self.online_users]:
+            # word_to_show = [self.current_word.word[i] if i in self.online_users[client_key]['letters_shown'] else "_" for i in range(len(self.current_word.word))]
+            # await self.send_to_clients(Div(word_to_show, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), *list(self.online_users[client_key]['ws_clients']))
         await self.send_to_clients(Div(self.hidden_word, id='hidden_word', style='font-size: 40px; letter-spacing: 10px; text-align: center;'), client)
 
 def ensure_db_tables():
@@ -401,12 +402,13 @@ async def get(session, app, request):
         Div(id='hidden_word'),
         Div(id="current_word_info"),
         Div(id='hints'),
-        Div(id='guess_form'),
+        Div(id='buy_form'),
         cls="middle-panel"
     )
     right_panel = Div(
         Div(top_right_corner),
         Div(id='guesses'),
+        Div(id='guess_form'),
         cls="side-panel"
     )
     main_content = Div(
@@ -495,9 +497,10 @@ async def post(session, guess: str):
             return guess_form()
         async with task_manager.current_winners_lock:
             task_manager.current_winners.append(winner_name)
-        db_winner['points'] += 5
+        db_winner['points'] += int(50 * task_manager.countdown_var / env_vars.WORD_COUNTDOWN_SEC)
         players.update(db_winner)
         elem = Div(winner_name + ": " + str(db_winner['points']) + " pts", cls='login', id='login_points')
+
         for client in task_manager.online_users[winner_name]['ws_clients']:
             await task_manager.send_to_clients(elem, client)
         await task_manager.broadcast_leaderboard()
@@ -513,6 +516,26 @@ async def post(session, guess: str):
         logging.debug(f"Guess: {guess} from {db_player[0]['name']}")
         return guess_form()
 
+def buy_form():
+    return Div(Form(
+            Button('BUY', cls='primary', style='width: 100%;', id="buy_btn"),
+            action='/', hx_post='/buy', style='border: 5px solid #eaf6f6; padding: 10px; width: 100%; margin: 10px auto;',
+            id='buy_form'), hx_swap="outerHTML"
+        )
+
+@rt("/buy")
+async def post(session):
+    if 'session_id' not in session:
+        add_toast(session, SIGN_IN_TEXT, "error")
+        return buy_form()
+    
+    task_manager = app.state.task_manager
+
+    user_id = session['session_id']
+    if user_id in task_manager.online_users:
+        task_manager.online_users[user_id]['letters_shown'] = [0,1,2]
+
+    return buy_form()
 
 
 async def on_connect(send, ws):
@@ -522,13 +545,14 @@ async def on_connect(send, ws):
     task_manager = app.state.task_manager
     with task_manager.online_users_lock:
         if client_key not in task_manager.online_users:
-            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0}
+            task_manager.online_users[client_key] = { 'ws_clients': set(), 'combo_count': 0, 'letters_shown': []}
         task_manager.online_users[client_key]['ws_clients'].add(send)
     if task_manager.current_word:
         await task_manager.broadcast_current_word(send)
     await task_manager.broadcast_guesses(send)
     await task_manager.broadcast_leaderboard(send)
     await task_manager.send_to_clients(client=send, element=Div(guess_form(), id='guess_form'))
+    await task_manager.send_to_clients(client=send, element=Div(buy_form(), id='buy_form'))
 
 
 async def on_disconnect(send, session):
