@@ -90,7 +90,7 @@ class TaskManager:
         self.guesses = []
         self.guesses_lock = asyncio.Lock()
         self.current_word = None
-        self.hints = []
+        self.hints = {"Hint 1": "", "Hint 2": "", "Hint 3": ""}
         self.current_winners = []
         self.current_winners_lock = asyncio.Lock()
         self.random_letters = None
@@ -134,7 +134,7 @@ class TaskManager:
             hint5=query['hint5'],
         )
         self.current_word = word
-        self.hints = []
+        self.hints = {"Hint 1": "", "Hint 2": "", "Hint 3": ""}
         self.random_letters = random.sample(range(0, len(self.current_word.word)), 2)
         self.current_letters = []
         with self.online_users_lock:
@@ -243,12 +243,13 @@ class TaskManager:
         second = env_vars.WORD_COUNTDOWN_SEC / 3
         if self.current_word:
             if self.countdown_var >= first and self.current_word.hint1 not in self.hints:
-                self.hints.append(self.current_word.hint1)
+                self.hints["Hint 1"] = self.current_word.hint1
             if second <= self.countdown_var <= first and self.current_word.hint2 not in self.hints:
-                self.hints.append(self.current_word.hint2)
+                self.hints["Hint 2"] = self.current_word.hint2
             if self.countdown_var <= second and self.current_word.hint3 not in self.hints:
-                self.hints.append(self.current_word.hint3)
-        await self.send_to_clients(Div((Div(f"Hint {idx}: {hint}", style='font-size: 20px;') for idx, hint in enumerate(self.hints, 1)), id='hints', style='border: 1px solid #ccc; height: 200px; padding: 10px; margin-top: 20px;'))
+                self.hints["Hint 3"] = self.current_word.hint3
+        print(self.hints)
+        await self.send_to_clients(Div((Div(f"{hint}: {self.hints[hint]}", style='font-size: 20px; flex: 1;') for hint in self.hints), id='hints', style='border: 1px solid #ccc; height: 300px; padding: 10px; margin-top: 20px; display: flex; flex-direction: column;'))
     
     async def broadcast_letters(self, client=None):
         first = int(env_vars.WORD_COUNTDOWN_SEC / 4 * 3)
