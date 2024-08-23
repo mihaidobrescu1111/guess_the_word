@@ -42,13 +42,13 @@ css = [
     Style('.item { display: inline-block; }'),
     Style('.left { float: left; }'),
     Style('.right { float: right }'),
-    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 30%;}'),
-    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 40%;}'),
+    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 20%;}'),
+    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 60%;}'),
     Style('.login { margin-bottom: 10px; max-width: fit-content; margin-left: auto; margin-right: auto;}'),
     Style('.primary:active { background-color: #0056b3; }'),
     Style('.last-tab  { display: flex; align-items: center;  justify-content: center;}'),
-    Style('@media (max-width: 768px) { .side-panel { display: none; } .middle-panel { display: block; flex: 1; }  #login-badge { width: 70%; } .login { display: flex; justify-content: center; align-items: center; height: 100%; } .login a {display: flex; justify-content: center; align-items: center; } #google { display: flex; justify-content: center; align-items: center; }}'),
-    Style('@media (min-width: 769px) { .login_wrapper { display: none; } }'),
+    Style('@media (max-width: 768px) { .side-panel { display: none; } .middle-panel { display: block; flex: 1; } .trivia-question { font-size: 20px; } #login-badge { width: 70%; } .login { display: flex; justify-content: center; align-items: center; height: 100%; } .login a {display: flex; justify-content: center; align-items: center; } #google { display: flex; justify-content: center; align-items: center; }}'),
+    Style('@media (min-width: 769px) { .login_wrapper { display: none; } .bid_wrapper {display: none; } .past_topic_wrapper {display: none;} .trivia-question { font-size: 30px; }}'),
     Style('@media (max-width: 446px) { #how-to-play { font-size: 12px; height: 49.6px; white-space: normal; word-wrap: break-word; display: inline-flex; justify-content: center; align-items: center} #stats { height: 49.6px; } }'),
     Style('@media (min-width: 431px) { #play { width: 152.27px; } }'),
 ]
@@ -248,7 +248,6 @@ class TaskManager:
                 self.hints["Hint 2"] = self.current_word.hint2
             if self.countdown_var <= second and self.current_word.hint3 not in self.hints:
                 self.hints["Hint 3"] = self.current_word.hint3
-        print(self.hints)
         await self.send_to_clients(Div((Div(f"{hint}: {self.hints[hint]}", style='font-size: 20px; flex: 1;') for hint in self.hints), id='hints', style='border: 1px solid #ccc; height: 300px; padding: 10px; margin-top: 20px; display: flex; flex-direction: column;'))
     
     async def broadcast_letters(self, client=None):
