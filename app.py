@@ -42,8 +42,8 @@ css = [
     Style('.item { display: inline-block; }'),
     Style('.left { float: left; }'),
     Style('.right { float: right }'),
-    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 20%;}'),
-    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 60%;}'),
+    Style('.side-panel { display: flex; flex-direction: column; width: 20%; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 30%;}'),
+    Style('.middle-panel { display: flex; flex-direction: column; flex: 1; padding: 10px; flex: 1; transition: all 0.3s ease-in-out; flex-basis: 40%;}'),
     Style('.login { margin-bottom: 10px; max-width: fit-content; margin-left: auto; margin-right: auto;}'),
     Style('.primary:active { background-color: #0056b3; }'),
     Style('.last-tab  { display: flex; align-items: center;  justify-content: center;}'),
@@ -549,6 +549,9 @@ async def post(session):
             if len(task_manager.online_users[user_id]['available_letters']) == 0:
                 add_toast(session, "Cannot buy anymore letters", "error")
                 return buy_form()
+            if db_player['points'] < 10:
+                add_toast(session, "Cannot buy anymore letters", "error")
+                return buy_form()  
             letter = random.choice(task_manager.online_users[user_id]['available_letters'])
             task_manager.online_users[user_id]['letters_shown'].append(letter)
             task_manager.online_users[user_id]['available_letters'].remove(letter)
