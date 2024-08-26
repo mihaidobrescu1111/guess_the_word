@@ -271,7 +271,7 @@ def ensure_db_tables():
 
     if words not in db.t:
         # bulk import from HF dataset
-        dataset = load_dataset("Mihaiii/guess_the_word-2", split='train')
+        dataset = load_dataset("Mihaiii/guess_the_word-3", split='train')
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute('''
