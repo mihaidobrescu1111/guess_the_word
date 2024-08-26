@@ -555,6 +555,7 @@ async def post(session):
             letter = random.choice(task_manager.online_users[user_id]['available_letters'])
             task_manager.online_users[user_id]['letters_shown'].append(letter)
             task_manager.online_users[user_id]['available_letters'].remove(letter)
+            task_manager.current_winners.append(db_player)
             db_player['points'] -= 10
             players.update(db_player)
             elem = Div(db_player['name'] + ": " + str(db_player['points']) + " pts", cls='login', id='login_points')
